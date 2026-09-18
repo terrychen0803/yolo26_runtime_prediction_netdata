@@ -1,0 +1,26 @@
+﻿{
+  "experiment_stack": "yolo26-cross-hardware-v1",
+
+  "python_major_minor": "3.12",
+
+  "ultralytics_version": "8.4.104",
+
+  "torch_version": "2.11.0+cu128",
+  "torch_cuda_version": "12.8",
+
+  "cuda_toolkit_major_minor": "12.8",
+
+  "driver_policy": "record_only",
+
+  "profiling": {
+    "nsight_systems_version": "2026.4.1",
+    "nsight_systems_required": true,
+
+    "nsight_trace": true,
+    "nsight_gpu_metrics": true,
+    "nsight_cpu_metrics": true,
+
+    "hpctoolkit_gpu_cuda": "optional",
+    "hpctoolkit_pc_sampling": "not_required"
+  }
+}
