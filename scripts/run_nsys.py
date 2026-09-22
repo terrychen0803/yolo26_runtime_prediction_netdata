@@ -617,20 +617,9 @@ def main() -> None:
                 "GPU environment check failed."
             )
 
-        # Resolve again after environment validation,
-        # ensuring the exact executable used below is recorded.
-        discovered_nsys = shutil.which("nsys")
-
-        if discovered_nsys is None:
-            raise SystemExit(
-                "Nsight Systems CLI 'nsys' "
-                "was not found in PATH."
-            )
-
-        nsys_path = str(
-            Path(discovered_nsys).resolve()
-        )
-
+        # Keep the executable resolved above. In particular, do not
+        # replace an explicit --nsys-path with shutil.which("nsys")
+        # after environment validation.
         nsys_version = get_nsys_version(
             nsys_path
         )
