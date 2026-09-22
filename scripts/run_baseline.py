@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -15,6 +17,7 @@ DEFAULT_RUNS_ROOT = PROJECT_ROOT / "runs"
 
 TRAIN_SCRIPT = PROJECT_ROOT / "scripts" / "train_yolo26.py"
 CHECK_ENV_SCRIPT = PROJECT_ROOT / "scripts" / "check_environment.py"
+NETDATA_SCRIPT = PROJECT_ROOT / "scripts" / "collect_netdata.py"
 
 
 def load_valid_workloads(csv_path: Path) -> set[str]:
@@ -142,6 +145,38 @@ def main() -> None:
     )
 
     parser.add_argument(
+        "--netdata",
+        action="store_true",
+        help=(
+            "Collect node-level Netdata metrics for each "
+            "ground-truth repeat."
+        ),
+    )
+
+    parser.add_argument(
+        "--netdata-url",
+        default="http://127.0.0.1:19999",
+        help="Local Netdata Agent base URL.",
+    )
+
+    parser.add_argument(
+        "--netdata-interval",
+        type=float,
+        default=1.0,
+        help="Netdata sampling interval in seconds. Default: 1.0.",
+    )
+
+    parser.add_argument(
+        "--netdata-preroll",
+        type=float,
+        default=5.0,
+        help=(
+            "Seconds to collect Netdata before launching the "
+            "ground-truth workload. Default: 5.0."
+        ),
+    )
+
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help=(
@@ -163,6 +198,16 @@ def main() -> None:
 
     if args.repeats < 1:
         raise ValueError("--repeats must be >= 1")
+
+    if args.netdata_interval < 1.0:
+        raise ValueError(
+            "--netdata-interval must be >= 1.0 second"
+        )
+
+    if args.netdata_preroll < 0.0:
+        raise ValueError(
+            "--netdata-preroll must be >= 0"
+        )
 
     experiments_path = args.experiments.resolve()
     runs_root = args.runs_root.resolve()
@@ -194,6 +239,13 @@ def main() -> None:
     print(f"Workloads : {', '.join(workloads)}")
     print(f"Repeats   : {args.repeats}")
     print(f"Dry run   : {args.dry_run}")
+    print(f"Netdata   : {args.netdata}")
+
+    if args.netdata:
+        print(f"Netdata URL : {args.netdata_url}")
+        print(f"Netdata int : {args.netdata_interval} s")
+        print(f"Netdata pre : {args.netdata_preroll} s")
+
     print("=" * 72)
     print()
 
@@ -296,6 +348,25 @@ def main() -> None:
 
             print_command(command)
 
+            netdata_csv = run_dir / "netdata.csv"
+            netdata_log = run_dir / "netdata.log"
+
+            netdata_command = [
+                sys.executable,
+                str(NETDATA_SCRIPT),
+                "--output",
+                str(netdata_csv),
+                "--url",
+                args.netdata_url,
+                "--interval",
+                str(args.netdata_interval),
+            ]
+
+            if args.netdata:
+                print()
+                print("[Netdata monitor]")
+                print_command(netdata_command)
+
             if args.dry_run:
                 continue
 
@@ -304,15 +375,94 @@ def main() -> None:
                 exist_ok=True,
             )
 
+            baseline_config = {
+                "device_id": args.device_id,
+                "workload_id": workload_id,
+                "repeat": repeat,
+                "run_type": "baseline",
+                "netdata_enabled": args.netdata,
+                "netdata_url": (
+                    args.netdata_url
+                    if args.netdata
+                    else None
+                ),
+                "netdata_interval_s": (
+                    args.netdata_interval
+                    if args.netdata
+                    else None
+                ),
+                "netdata_preroll_s": (
+                    args.netdata_preroll
+                    if args.netdata
+                    else None
+                ),
+                "command": command,
+            }
+
+            (
+                run_dir / "baseline_config.json"
+            ).write_text(
+                json.dumps(
+                    baseline_config,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            netdata_process = None
+            netdata_log_file = None
+
+            if args.netdata:
+                netdata_log_file = netdata_log.open(
+                    "w",
+                    encoding="utf-8",
+                )
+
+                netdata_process = subprocess.Popen(
+                    netdata_command,
+                    stdout=netdata_log_file,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+
+                time.sleep(args.netdata_preroll)
+
+                if netdata_process.poll() is not None:
+                    netdata_log_file.close()
+                    raise RuntimeError(
+                        "Netdata collector exited before "
+                        "the ground-truth workload started. "
+                        f"Check: {netdata_log}"
+                    )
+
             log_path = (
                 run_dir
                 / "run.log"
             )
 
-            return_code = run_with_log(
-                command,
-                log_path,
-            )
+            try:
+                return_code = run_with_log(
+                    command,
+                    log_path,
+                )
+
+            finally:
+                if netdata_process is not None:
+                    print()
+                    print("[Netdata monitor] stopping...")
+
+                    netdata_process.terminate()
+
+                    try:
+                        netdata_process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        netdata_process.kill()
+                        netdata_process.wait()
+
+                    print("[Netdata monitor] stopped")
+
+                if netdata_log_file is not None:
+                    netdata_log_file.close()
 
             if return_code != 0:
                 print()
