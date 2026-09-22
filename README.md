@@ -137,3 +137,34 @@ The original C01-C24 workload matrix is preserved:
 - Nsight GPU metrics may run at a much higher frequency; the datasets are aligned later by timestamp instead of forcing a common sampling rate.
 - `Top1 GPU%` and `Top2 GPU%` are placeholders for a future NVML per-process GPU-utilization collector.
 - Before large profiling sweeps, verify available disk space because `.nsys-rep` files can be large.
+
+
+## Ground-truth baseline + Netdata
+
+Each baseline repeat can collect its own Netdata trace so the observed machine state is paired 1:1 with the ground-truth runtime.
+
+```bash
+python scripts/run_baseline.py \
+  --device-id RTX5090 \
+  --workloads C01 \
+  --repeats 5 \
+  --runs-root runs_loaded/high_load_01 \
+  --netdata \
+  --netdata-interval 1.0 \
+  --netdata-preroll 5.0
+```
+
+Each repeat then contains:
+
+```text
+baseline_01/
+├── iterations.csv
+├── summary.json
+├── metadata.json
+├── baseline_config.json
+├── run.log
+├── netdata.csv
+└── netdata.log
+```
+
+For prediction datasets, derive deployable load-state features from a fixed pre-run window (for example, the final 5 seconds before the first YOLO iteration). Keep during-run Netdata features separate as diagnostic features to avoid target leakage.
