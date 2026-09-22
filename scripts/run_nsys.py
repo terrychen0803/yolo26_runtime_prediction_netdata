@@ -212,6 +212,16 @@ def main() -> None:
         default=1,
     )
 
+    parser.add_argument(
+        "--nsys-path",
+        type=Path,
+        default=None,
+        help=(
+            "Explicit Nsight Systems CLI executable. "
+            "If omitted, resolve 'nsys' from PATH."
+        ),
+    )
+
     # ----------------------------------------------------------
     # GPU Metrics configuration
     # ----------------------------------------------------------
@@ -454,20 +464,38 @@ def main() -> None:
     # Resolve Nsight executable
     # ----------------------------------------------------------
 
-    discovered_nsys = shutil.which("nsys")
+    if args.nsys_path is not None:
+        requested_nsys = args.nsys_path.expanduser().resolve()
 
-    if discovered_nsys is None:
-        if args.dry_run:
-            nsys_path = "nsys"
-        else:
+        if not requested_nsys.exists():
             raise SystemExit(
-                "Nsight Systems CLI 'nsys' "
-                "was not found in PATH."
+                "Explicit Nsight Systems CLI does not exist:\n"
+                f"  {requested_nsys}"
             )
+
+        if not requested_nsys.is_file():
+            raise SystemExit(
+                "Explicit Nsight Systems path is not a file:\n"
+                f"  {requested_nsys}"
+            )
+
+        nsys_path = str(requested_nsys)
+
     else:
-        nsys_path = str(
-            Path(discovered_nsys).resolve()
-        )
+        discovered_nsys = shutil.which("nsys")
+
+        if discovered_nsys is None:
+            if args.dry_run:
+                nsys_path = "nsys"
+            else:
+                raise SystemExit(
+                    "Nsight Systems CLI 'nsys' "
+                    "was not found in PATH."
+                )
+        else:
+            nsys_path = str(
+                Path(discovered_nsys).resolve()
+            )
 
     # ----------------------------------------------------------
     # Configuration summary
